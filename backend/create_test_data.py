@@ -1,15 +1,15 @@
 from app.database import SessionLocal
-from app.models import Employee, OfficeLocation, AttendanceMode
+from app.models import Employee, OfficeLocation, AttendanceRecord, SuspiciousCheckIn, AttendanceMode
+from geoalchemy2.elements import WKTElement
 
 def create_test_data():
     db = SessionLocal()
 
-    # Create office location
+    # Create office location using PostGIS geometry
     mumbai_office = OfficeLocation(
         id=1, 
         name="Mumbai Office", 
-        latitude=19.0760, 
-        longitude=72.8777,
+        location=WKTElement('POINT(72.8777 19.0760)', srid=4326),  # longitude, latitude
         radius_meters=100, 
         city="Mumbai"
     )
@@ -23,7 +23,8 @@ def create_test_data():
         name="Employee User", 
         employee_id="EMP001",
         attendance_mode=AttendanceMode.OFFICE, 
-        office_location_id=1, 
+        office_location_id=1,
+        is_admin=False,  # Normal employee
         is_active=True
     )
     
@@ -33,7 +34,8 @@ def create_test_data():
         name="Admin User", 
         employee_id="ADMIN001",
         attendance_mode=AttendanceMode.OFFICE, 
-        office_location_id=1, 
+        office_location_id=1,
+        is_admin=True,  # Admin user
         is_active=True
     )
     
