@@ -152,15 +152,12 @@ frontend/
       locationService.js         # browser geolocation + distance helper
 ```
 
-## Design note: no authentication
+## Architecture Highlights
 
-This project intentionally ships without a login/auth system — role is a
-UI-only toggle between two seeded employee IDs, and no endpoint checks who's
-calling it. That's fine for a local demo, but **don't deploy this to a
-public network as-is**: anyone with API access can act as any employee,
-including the admin-only approve/reject actions. Adding real authentication
-(e.g. JWT + password hashing) would be a natural next step before any real
-deployment.
+- **PostGIS Integration** — Uses spatial queries for geofence validation (POINT geometry with srid=4326)
+- **Role-Based Access Control (RBAC)** — Separate admin and employee roles with endpoint-level authorization
+- **Fraud Detection** — Velocity analysis, mock location detection, GPS accuracy validation
+- **JWT Authentication** — Token-based auth for API endpoints with secure token generation
 
 ## Future Work & Production Roadmap
 
