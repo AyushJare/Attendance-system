@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from typing import Optional
-
+from geoalchemy2.elements import WKTElement
 from ..database import get_db
 from ..models import Employee, AttendanceRecord, OfficeLocation, AttendanceMode, SuspiciousCheckIn
 from ..services.distance import haversine_distance
@@ -31,9 +32,7 @@ class CheckInResponse(BaseModel):
 
 @router.post("/check-in", response_model=CheckInResponse)
 def check_in(request: CheckInRequest, db: Session = Depends(get_db), employee_id: int = 1):
-    """
-    Employee check-in endpoint
-    """
+    """Employee check-in endpoint"""
     
     # 1. Validate employee exists
     employee = db.query(Employee).filter(
@@ -55,17 +54,26 @@ def check_in(request: CheckInRequest, db: Session = Depends(get_db), employee_id
     if recent_checkin:
         raise HTTPException(status_code=400, detail="Already checked in within last 5 minutes")
     
-    # 3. Get office location
-    office = db.query(OfficeLocation).filter(
+    # 3. Get office location using PostGIS
+    office_query = db.query(
+        OfficeLocation.id,
+        OfficeLocation.radius_meters,
+        func.ST_Y(OfficeLocation.location).label('latitude'),
+        func.ST_X(OfficeLocation.location).label('longitude')
+    ).filter(
         OfficeLocation.id == employee.office_location_id
     ).first()
-    
-    if not office:
+
+    if not office_query:
         raise HTTPException(status_code=404, detail="Office location not configured")
-    
+
+    office_lat = office_query.latitude
+    office_lon = office_query.longitude
+    office_radius = office_query.radius_meters
+
     # 4. Calculate distance
     distance = haversine_distance(
-        office.latitude, office.longitude,
+        office_lat, office_lon,
         request.latitude, request.longitude
     )
     
@@ -82,9 +90,9 @@ def check_in(request: CheckInRequest, db: Session = Depends(get_db), employee_id
 
     # Office/Field mode validation
     if employee.attendance_mode == AttendanceMode.OFFICE:
-        if distance > office.radius_meters:
+        if distance > office_radius:
             is_valid = False
-            reason = f"Distance {distance:.2f}m exceeds limit of {office.radius_meters}m"
+            reason = f"Distance {distance:.2f}m exceeds limit of {office_radius}m"
             requires_approval = True
     elif employee.attendance_mode == AttendanceMode.FIELD:
         if distance > 50000:
@@ -114,12 +122,11 @@ def check_in(request: CheckInRequest, db: Session = Depends(get_db), employee_id
         is_valid = False
         requires_approval = True
         reason = high_severity_flags[0]["message"]
-
+    
     # 7. Save attendance record
     attendance_record = AttendanceRecord(
         employee_id=employee.id,
-        check_in_latitude=request.latitude,
-        check_in_longitude=request.longitude,
+        check_in_location=WKTElement(f'POINT({request.longitude} {request.latitude})', srid=4326),
         distance_from_office=distance,
         attendance_mode=employee.attendance_mode,
         is_valid=is_valid,
@@ -157,9 +164,7 @@ def check_in(request: CheckInRequest, db: Session = Depends(get_db), employee_id
 
 @router.post("/check-out", response_model=CheckInResponse)
 def check_out(request: CheckInRequest, db: Session = Depends(get_db), employee_id: int = 1):
-    """
-    Employee check-out endpoint with validation
-    """
+    """Employee check-out endpoint"""
     
     # 1. Validate employee
     employee = db.query(Employee).filter(
@@ -179,24 +184,29 @@ def check_out(request: CheckInRequest, db: Session = Depends(get_db), employee_i
     if not latest:
         raise HTTPException(status_code=404, detail="No open check-in found")
     
-    # 3. Validate check-out location (if office mode)
-    office = db.query(OfficeLocation).filter(
-        OfficeLocation.id == employee.office_location_id
-    ).first()
-    
-    if employee.attendance_mode == AttendanceMode.OFFICE and office:
-        checkout_distance = haversine_distance(
-            office.latitude, office.longitude,
-            request.latitude, request.longitude
-        )
+    # 3. Validate check-out location (if office mode) using PostGIS
+    if employee.attendance_mode == AttendanceMode.OFFICE:
+        office_query = db.query(
+            OfficeLocation.radius_meters,
+            func.ST_Y(OfficeLocation.location).label('latitude'),
+            func.ST_X(OfficeLocation.location).label('longitude')
+        ).filter(
+            OfficeLocation.id == employee.office_location_id
+        ).first()
         
-        if checkout_distance > office.radius_meters:
-            return CheckInResponse(
-                success=False,
-                message=f"❌ Check-out outside office geofence (distance: {checkout_distance:.2f}m)",
-                distance_meters=round(checkout_distance, 2),
-                requires_approval=True
+        if office_query:
+            checkout_distance = haversine_distance(
+                office_query.latitude, office_query.longitude,
+                request.latitude, request.longitude
             )
+            
+            if checkout_distance > office_query.radius_meters:
+                return CheckInResponse(
+                    success=False,
+                    message=f"❌ Check-out outside office geofence (distance: {checkout_distance:.2f}m)",
+                    distance_meters=round(checkout_distance, 2),
+                    requires_approval=True
+                )
     
     # 4. Update check-out time
     latest.check_out_time = datetime.utcnow()
@@ -214,9 +224,7 @@ def check_out(request: CheckInRequest, db: Session = Depends(get_db), employee_i
 
 @router.get("/history/{employee_id}")
 def get_attendance_history(employee_id: int, db: Session = Depends(get_db)):
-    """
-    Get attendance history for employee (last 30 records)
-    """
+    """Get attendance history for employee (last 30 records)"""
     records = db.query(AttendanceRecord).filter(
         AttendanceRecord.employee_id == employee_id
     ).order_by(AttendanceRecord.check_in_time.desc()).limit(30).all()
@@ -236,20 +244,20 @@ def get_attendance_history(employee_id: int, db: Session = Depends(get_db)):
         ]
     }
 
-@router.get("/")
-def attendance_root():
-    return {"message": "Attendance endpoints available"}
-
 @router.get("/office-locations")
 def get_office_locations(db: Session = Depends(get_db)):
-    """
-    Get all active office locations
-    """
-    locations = db.query(OfficeLocation).filter(
-        OfficeLocation.is_active == True
-    ).all()
+    """Get all active office locations"""
+    locations = db.query(
+        OfficeLocation.id,
+        OfficeLocation.name,
+        func.ST_Y(OfficeLocation.location).label('latitude'),
+        func.ST_X(OfficeLocation.location).label('longitude'),
+        OfficeLocation.radius_meters,
+        OfficeLocation.city
+    ).filter(OfficeLocation.is_active == True).all()
     
     return {
+        "count": len(locations),
         "locations": [
             {
                 "id": loc.id,
@@ -262,3 +270,7 @@ def get_office_locations(db: Session = Depends(get_db)):
             for loc in locations
         ]
     }
+
+@router.get("/")
+def attendance_root():
+    return {"message": "Attendance endpoints available"}

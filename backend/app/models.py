@@ -37,6 +37,20 @@ class OfficeLocation(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    @property
+    def latitude(self):
+        """Extract latitude from PostGIS geometry"""
+        if self.location:
+            return self.location.y
+        return None
+    
+    @property
+    def longitude(self):
+        """Extract longitude from PostGIS geometry"""
+        if self.location:
+            return self.location.x
+        return None
+
 class AttendanceRecord(Base):
     __tablename__ = "attendance_records"
     
