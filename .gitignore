@@ -8,6 +8,7 @@ __pycache__/
 .venv
 env/
 ENV/
+*.pyc
 
 # Node
 node_modules/
@@ -24,9 +25,3 @@ build/
 # OS
 .DS_Store
 Thumbs.db
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-attendance_db
