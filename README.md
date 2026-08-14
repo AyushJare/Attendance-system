@@ -1,18 +1,39 @@
 # Location-Based Attendance Tracking System
 
-A full-stack attendance tracker: employees check in/out using their device's
-GPS, and their location is validated against an office geofence. Suspicious
-check-ins (out of range, poor GPS, GPS spoofing, duplicate/rapid check-ins)
-are flagged for admin review.
+Full-stack attendance tracking system with geospatial verification. Employees check in/out using GPS, location validated against office geofence using PostGIS spatial queries. Built for **web (React) and mobile (Flutter)** for seamless cross-platform experience.
+
+Prevents GPS spoofing, detects impossible travel speed, flags suspicious check-ins for admin review.
 
 This build has **no login system**. Role is switched with a button in the UI,
 which is the intended way to demo both the employee and admin experience —
 see [How roles work](#how-roles-work) below.
 
+
 ## Tech stack
 
-- **Backend:** FastAPI (Python), SQLAlchemy, PostgreSQL
-- **Frontend:** React 19 + Vite, axios
+- **Backend:** FastAPI (Python), SQLAlchemy, PostgreSQL + PostGIS
+- **Frontend:** React 19 + Vite (web), Flutter (mobile)
+- **Database:** PostgreSQL with PostGIS geospatial extension
+- 
+
+## 🎯 Why This Matters
+
+Attendance systems are targets for fraud:
+- **GPS spoofing:** Fake location apps
+- **Impossible travel:** Check-in from 2 cities in 5 minutes
+- **Duplicate check-ins:** Same location, rapid timestamps
+
+This system **detects all 3**. Real geospatial validation (not just distance math), fraud detection engine, admin review queue for edge cases.
+
+**Result:** Tamper-proof attendance tracking across web + mobile.
+
+
+## 📱 Platform Coverage
+
+- **Web:** React 19 + Vite, runs on desktop/tablet browsers
+- **Mobile:** Flutter (iOS + Android), native performance with React web feature parity
+- **Synced:** Both platforms connect to same FastAPI backend and PostgreSQL database
+
 
 ## Quick Start (~2 min)
 
